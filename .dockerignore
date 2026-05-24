@@ -11,3 +11,4 @@ frontend/.next
 frontend/out
 frontend/test-results
 frontend/playwright-report
+data

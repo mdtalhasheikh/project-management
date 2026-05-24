@@ -2,6 +2,20 @@
 
 Work through each part in order. After each part is implemented and tested, pause for user approval before starting the next part.
 
+## Current Implementation Decisions
+
+- The production app runs as one Dockerized FastAPI service on `http://localhost:8000`.
+- The Next.js frontend is built as a static export during Docker builds and copied into the FastAPI image. FastAPI serves the exported frontend at `/` and keeps API routes under `/api`.
+- Local frontend development uses `npm run dev` with webpack because Turbopack dev hung locally on `Compiling /`. In dev mode, Next proxies `/api/*` to `http://localhost:8000/api/*`, so the Docker backend must be running when testing the frontend at `http://localhost:3000`.
+- Playwright tests serve the static `frontend/out` build with `http-server` and mock board API responses where needed. Docker/browser smoke tests cover the real frontend and backend together.
+- Dummy login remains frontend-only React state. Credentials are `user` and `password`; no backend auth has been added yet.
+- SQLite data is stored in `data/project-management.db`, mounted into Docker with `./data:/app/data`, and ignored by git.
+- The database schema is normalized across `users`, `boards`, `columns`, and `cards`; details are documented in `docs/DATABASE.md`.
+- Backend board mutations return the updated board so the frontend can refresh state from the API response after each change.
+- AI chat uses a structured JSON response contract with a user-facing message and optional card actions. The backend validates all AI-requested actions before applying them through the existing board data layer.
+- The frontend chat sidebar keeps conversation history in the current browser session and refreshes the board when the backend reports an AI-driven board change.
+- If Docker appears to serve stale frontend assets during local testing, force a rebuild with `docker compose build --no-cache` before starting the app again.
+
 ## Part 1: Planning and Frontend Notes
 
 Goal: turn the high-level project outline into an executable plan and document the existing frontend.
@@ -10,7 +24,7 @@ Checklist:
 - [x] Expand this plan with detailed substeps, tests, and success criteria for each part.
 - [x] Fix typos and clarify ambiguous implementation choices.
 - [x] Create or update `frontend/AGENTS.md` with a concise description of the current frontend structure, dependencies, and test commands.
-- [ ] Ask the user to review and approve the plan before Part 2 begins.
+- [x] Ask the user to review and approve the plan before Part 2 begins.
 
 Tests:
 - [x] Review `docs/PLAN.md` for spelling, clarity, and consistency with `AGENTS.md`.
@@ -19,7 +33,7 @@ Tests:
 Success criteria:
 - [x] The plan clearly states that the Kanban database will use normalized SQLite tables.
 - [x] The plan clearly states that dummy login remains frontend-only until backend persistence is introduced.
-- [ ] The user approves the plan.
+- [x] The user approves the plan.
 
 ## Part 2: Scaffolding
 
@@ -103,7 +117,7 @@ Checklist:
 - [x] Include creation and update timestamps where useful.
 - [x] Define seed data for the default user and initial board.
 - [x] Define migration or initialization behavior for creating a missing database.
-- [ ] Ask the user to approve the schema before Part 6 begins.
+- [x] Ask the user to approve the schema before Part 6 begins.
 
 Tests:
 - [x] Review the schema against current Kanban data needs.
@@ -113,123 +127,123 @@ Tests:
 Success criteria:
 - [x] The schema is documented and normalized.
 - [x] The schema avoids storing the board as one opaque JSON blob.
-- [ ] The user approves the database approach.
+- [x] The user approves the database approach.
 
 ## Part 6: Backend Persistence API
 
 Goal: implement FastAPI routes that read and update the Kanban board for a user using SQLite.
 
 Checklist:
-- [ ] Add SQLite connection and database initialization code.
-- [ ] Create the database if it does not exist.
-- [ ] Seed the default `user` account and initial board when needed.
-- [ ] Add API routes to fetch the current user's board.
-- [ ] Add API routes to rename columns.
-- [ ] Add API routes to create, update, delete, and move cards.
-- [ ] Keep the backend API small and focused on the MVP interactions.
-- [ ] Use the hardcoded MVP user until backend auth is introduced.
+- [x] Add SQLite connection and database initialization code.
+- [x] Create the database if it does not exist.
+- [x] Seed the default `user` account and initial board when needed.
+- [x] Add API routes to fetch the current user's board.
+- [x] Add API routes to rename columns.
+- [x] Add API routes to create, update, delete, and move cards.
+- [x] Keep the backend API small and focused on the MVP interactions.
+- [x] Use the hardcoded MVP user until backend auth is introduced.
 
 Tests:
-- [ ] Unit test database initialization and seed behavior.
-- [ ] Unit test each board mutation at the data layer.
-- [ ] FastAPI route tests cover fetch, rename, create, update, delete, and move.
-- [ ] Test that a missing database is created automatically.
+- [x] Unit test database initialization and seed behavior.
+- [x] Unit test each board mutation at the data layer.
+- [x] FastAPI route tests cover fetch, rename, create, update, delete, and move.
+- [x] Test that a missing database is created automatically.
 
 Success criteria:
-- [ ] Backend tests pass.
-- [ ] API routes persist changes in SQLite.
-- [ ] Restarting the backend does not lose board changes.
+- [x] Backend tests pass.
+- [x] API routes persist changes in SQLite.
+- [x] Restarting the backend does not lose board changes.
 
 ## Part 7: Connect Frontend to Backend
 
 Goal: make the Kanban board use the backend API so board changes persist.
 
 Checklist:
-- [ ] Add a small frontend API client for board operations.
-- [ ] Load the board from the backend after dummy login.
-- [ ] Replace local-only board mutations with API-backed operations.
-- [ ] Update frontend state from API responses.
-- [ ] Handle simple loading and error states.
-- [ ] Keep the UI behavior close to the existing demo.
+- [x] Add a small frontend API client for board operations.
+- [x] Load the board from the backend after dummy login.
+- [x] Replace local-only board mutations with API-backed operations.
+- [x] Update frontend state from API responses.
+- [x] Handle simple loading and error states.
+- [x] Keep the UI behavior close to the existing demo.
 
 Tests:
-- [ ] Frontend unit tests for API client or state helpers where useful.
-- [ ] Playwright test confirms board data loads from the backend.
-- [ ] Playwright test confirms column rename persists after reload.
-- [ ] Playwright test confirms card create, edit, delete, and move persist after reload.
-- [ ] Backend tests from Part 6 still pass.
+- [x] Frontend unit tests for API client or state helpers where useful.
+- [x] Playwright test confirms board data loads from the backend.
+- [x] Playwright test confirms column rename persists after reload.
+- [x] Playwright test confirms card create, edit, delete, and move persist after reload.
+- [x] Backend tests from Part 6 still pass.
 
 Success criteria:
-- [ ] The app is a persistent Kanban board.
-- [ ] Refreshing the browser keeps board changes.
-- [ ] The local Docker app runs frontend and backend together.
+- [x] The app is a persistent Kanban board.
+- [x] Refreshing the browser keeps board changes.
+- [x] The local Docker app runs frontend and backend together.
 
 ## Part 8: AI Connectivity
 
 Goal: prove the backend can call OpenRouter using the configured model.
 
 Checklist:
-- [ ] Add backend configuration for `OPENROUTER_API_KEY`.
-- [ ] Use OpenRouter with model `openai/gpt-oss-120b`.
-- [ ] Add a minimal backend AI client.
-- [ ] Add a development-only or test endpoint/command that asks the model a simple `2+2` question.
-- [ ] Keep secrets out of source control.
+- [x] Add backend configuration for `OPENROUTER_API_KEY`.
+- [x] Use OpenRouter with model `openai/gpt-oss-120b`.
+- [x] Add a minimal backend AI client.
+- [x] Add a development-only or test endpoint/command that asks the model a simple `2+2` question.
+- [x] Keep secrets out of source control.
 
 Tests:
-- [ ] Unit test AI client behavior with mocked OpenRouter responses.
-- [ ] Manual smoke test confirms a real `2+2` call works when `OPENROUTER_API_KEY` is set.
-- [ ] Test that missing API key produces a clear backend error.
+- [x] Unit test AI client behavior with mocked OpenRouter responses.
+- [x] Manual smoke test confirms a real `2+2` call works when `OPENROUTER_API_KEY` is set.
+- [x] Test that missing API key produces a clear backend error.
 
 Success criteria:
-- [ ] The backend can make a real OpenRouter call locally.
-- [ ] The real-call test is documented but does not run automatically without credentials.
-- [ ] No API keys are committed.
+- [x] The backend can make a real OpenRouter call locally.
+- [x] The real-call test is documented but does not run automatically without credentials.
+- [x] No API keys are committed.
 
 ## Part 9: AI Board Update Contract
 
 Goal: send the board JSON, user question, and chat history to the AI, then receive structured output that may update the Kanban board.
 
 Checklist:
-- [ ] Define the structured AI response schema.
-- [ ] Include a user-facing chat response in every AI result.
-- [ ] Allow optional Kanban updates for creating, editing, moving, or deleting one or more cards.
-- [ ] Include current board state and conversation history in the AI prompt.
-- [ ] Validate AI output before applying changes.
-- [ ] Apply valid AI-requested board changes through the same backend data layer used by the API.
-- [ ] Return the updated board when changes are applied.
+- [x] Define the structured AI response schema.
+- [x] Include a user-facing chat response in every AI result.
+- [x] Allow optional Kanban updates for creating, editing, moving, or deleting one or more cards.
+- [x] Include current board state and conversation history in the AI prompt.
+- [x] Validate AI output before applying changes.
+- [x] Apply valid AI-requested board changes through the same backend data layer used by the API.
+- [x] Return the updated board when changes are applied.
 
 Tests:
-- [ ] Unit test structured output parsing and validation.
-- [ ] Unit test each AI-supported board mutation using mocked AI responses.
-- [ ] Route tests cover chat responses with no board update.
-- [ ] Route tests cover chat responses with one or more board updates.
-- [ ] Test invalid AI output is rejected without corrupting the board.
+- [x] Unit test structured output parsing and validation.
+- [x] Unit test each AI-supported board mutation using mocked AI responses.
+- [x] Route tests cover chat responses with no board update.
+- [x] Route tests cover chat responses with one or more board updates.
+- [x] Test invalid AI output is rejected without corrupting the board.
 
 Success criteria:
-- [ ] The backend can safely process AI chat responses.
-- [ ] AI-driven board updates persist in SQLite.
-- [ ] The backend response tells the frontend whether the board changed.
+- [x] The backend can safely process AI chat responses.
+- [x] AI-driven board updates persist in SQLite.
+- [x] The backend response tells the frontend whether the board changed.
 
 ## Part 10: AI Chat Sidebar
 
 Goal: add a polished sidebar chat UI that lets the user ask the AI to work with the Kanban board.
 
 Checklist:
-- [ ] Add a sidebar chat widget to the Kanban page.
-- [ ] Show conversation history for the current session.
-- [ ] Send user messages to the backend AI endpoint.
-- [ ] Render assistant responses clearly.
-- [ ] Show loading and error states.
-- [ ] Refresh the board automatically when the AI updates it.
-- [ ] Keep the layout responsive and aligned with the project color scheme.
+- [x] Add a sidebar chat widget to the Kanban page.
+- [x] Show conversation history for the current session.
+- [x] Send user messages to the backend AI endpoint.
+- [x] Render assistant responses clearly.
+- [x] Show loading and error states.
+- [x] Refresh the board automatically when the AI updates it.
+- [x] Keep the layout responsive and aligned with the project color scheme.
 
 Tests:
-- [ ] Frontend tests cover chat rendering and message submission.
-- [ ] Playwright test covers a mocked AI response with no board update.
-- [ ] Playwright test covers a mocked AI response that updates the board and refreshes the UI.
-- [ ] Backend AI route tests from Part 9 still pass.
+- [x] Frontend tests cover chat rendering and message submission.
+- [x] Playwright test covers a mocked AI response with no board update.
+- [x] Playwright test covers a mocked AI response that updates the board and refreshes the UI.
+- [x] Backend AI route tests from Part 9 still pass.
 
 Success criteria:
-- [ ] The user can chat with the AI from the sidebar.
-- [ ] The AI can create, edit, move, or delete cards through structured backend updates.
-- [ ] The UI refreshes automatically when the board changes.
+- [x] The user can chat with the AI from the sidebar.
+- [x] The AI can create, edit, move, or delete cards through structured backend updates.
+- [x] The UI refreshes automatically when the board changes.

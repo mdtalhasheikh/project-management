@@ -15,7 +15,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/backend/src
 
-COPY backend/pyproject.toml /app/backend/pyproject.toml
+COPY backend/pyproject.toml backend/uv.lock /app/backend/
 COPY backend/src /app/backend/src
 COPY backend/static /app/backend/static
 COPY --from=frontend-builder /app/frontend/out /app/frontend/out

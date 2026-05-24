@@ -2,12 +2,16 @@
 .env*
 !.env.example
 node_modules
+.venv
 .next
 out
 dist
 coverage
 test-results
 playwright-report
+data
+__pycache__
+*.pyc
 tsconfig.tsbuildinfo
 Profile-2.pdf
 private/
