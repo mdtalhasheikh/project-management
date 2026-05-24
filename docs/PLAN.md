@@ -12,9 +12,25 @@ Work through each part in order. After each part is implemented and tested, paus
 - SQLite data is stored in `data/project-management.db`, mounted into Docker with `./data:/app/data`, and ignored by git.
 - The database schema is normalized across `users`, `boards`, `columns`, and `cards`; details are documented in `docs/DATABASE.md`.
 - Backend board mutations return the updated board so the frontend can refresh state from the API response after each change.
+- OpenRouter configuration comes from environment variables. `OPENROUTER_API_KEY` is required for real AI calls, `OPENROUTER_MODEL` defaults to `openai/gpt-oss-120b`, and `OPENROUTER_BASE_URL` defaults to `https://openrouter.ai/api/v1`.
+- The development AI probe endpoint is `POST /api/dev/ai/ask-2-plus-2` and is disabled unless `PROJECT_MANAGEMENT_ENABLE_AI_DEV_ENDPOINT=true`.
+- The production AI chat endpoint is `POST /api/chat`. It receives the user message and session chat history, adds current board JSON on the backend, and asks OpenRouter for a JSON object response.
 - AI chat uses a structured JSON response contract with a user-facing message and optional card actions. The backend validates all AI-requested actions before applying them through the existing board data layer.
+- AI-supported board actions are `create_card`, `update_card`, `move_card`, and `delete_card`. Invalid AI output returns an error and does not mutate the board.
 - The frontend chat sidebar keeps conversation history in the current browser session and refreshes the board when the backend reports an AI-driven board change.
+- Frontend lint ignores generated Playwright output folders (`test-results/` and `playwright-report/`) so missing generated folders do not break ESLint.
 - If Docker appears to serve stale frontend assets during local testing, force a rebuild with `docker compose build --no-cache` before starting the app again.
+
+## Latest Verification
+
+Last verified: 2026-05-24.
+
+- [x] Backend tests: `docker run --rm -v "$PWD:/app" -w /app/backend ghcr.io/astral-sh/uv:python3.12-bookworm-slim uv run pytest` passed with 24 tests.
+- [x] Frontend unit tests: `npm run test` passed with 12 tests.
+- [x] Frontend lint: `npm run lint` passed.
+- [x] Frontend production build: `npm run build` passed.
+- [x] Frontend Playwright tests: `npm run test:e2e` passed with 8 tests. If run at the same time as `npm run build`, rerun it after the build finishes because Next allows only one build process at a time.
+- [x] Docker image build: `docker compose build app` passed.
 
 ## Part 1: Planning and Frontend Notes
 
