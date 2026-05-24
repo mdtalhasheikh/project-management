@@ -1,5 +1,11 @@
 import { BoardColumn } from "./board";
 
+export type BoardSummary = {
+  id: number;
+  name: string;
+  cardCount: number;
+};
+
 export type Board = {
   id: number;
   name: string;
@@ -37,46 +43,91 @@ async function requestBoard(path: string, options?: RequestInit) {
   return requestJson<Board>(path, options);
 }
 
-export function fetchBoard() {
-  return requestBoard("/api/board");
+// ─── Board API ────────────────────────────────────────────────────────────────
+
+export function listBoards() {
+  return requestJson<BoardSummary[]>("/api/boards");
 }
 
-export function renameColumn(columnId: string, name: string) {
-  return requestBoard(`/api/columns/${columnId}`, {
+export function fetchBoard(boardId: number) {
+  return requestBoard(`/api/boards/${boardId}`);
+}
+
+export function createBoard(name: string) {
+  return requestBoard("/api/boards", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameBoard(boardId: number, name: string) {
+  return requestBoard(`/api/boards/${boardId}`, {
     method: "PATCH",
     body: JSON.stringify({ name }),
   });
 }
 
-export function createCard(columnId: string, title: string, details: string) {
-  return requestBoard("/api/cards", {
+export function deleteBoard(boardId: number) {
+  return requestJson<BoardSummary[]>(`/api/boards/${boardId}`, {
+    method: "DELETE",
+  });
+}
+
+// ─── Column API ───────────────────────────────────────────────────────────────
+
+export function createColumn(boardId: number, name: string) {
+  return requestBoard(`/api/boards/${boardId}/columns`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameColumn(boardId: number, columnId: string, name: string) {
+  return requestBoard(`/api/boards/${boardId}/columns/${columnId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteColumn(boardId: number, columnId: string) {
+  return requestBoard(`/api/boards/${boardId}/columns/${columnId}`, {
+    method: "DELETE",
+  });
+}
+
+// ─── Card API ─────────────────────────────────────────────────────────────────
+
+export function createCard(boardId: number, columnId: string, title: string, details: string) {
+  return requestBoard(`/api/boards/${boardId}/cards`, {
     method: "POST",
     body: JSON.stringify({ columnId, title, details }),
   });
 }
 
-export function updateCard(cardId: string, title: string, details: string) {
-  return requestBoard(`/api/cards/${cardId}`, {
+export function updateCard(boardId: number, cardId: string, title: string, details: string) {
+  return requestBoard(`/api/boards/${boardId}/cards/${cardId}`, {
     method: "PATCH",
     body: JSON.stringify({ title, details }),
   });
 }
 
-export function deleteCard(cardId: string) {
-  return requestBoard(`/api/cards/${cardId}`, {
+export function deleteCard(boardId: number, cardId: string) {
+  return requestBoard(`/api/boards/${boardId}/cards/${cardId}`, {
     method: "DELETE",
   });
 }
 
-export function moveCard(cardId: string, targetColumnId: string) {
-  return requestBoard(`/api/cards/${cardId}/move`, {
+export function moveCard(boardId: number, cardId: string, targetColumnId: string) {
+  return requestBoard(`/api/boards/${boardId}/cards/${cardId}/move`, {
     method: "POST",
     body: JSON.stringify({ targetColumnId }),
   });
 }
 
-export function sendChatMessage(message: string, history: ChatMessage[]) {
-  return requestJson<ChatResponse>("/api/chat", {
+// ─── Chat API ─────────────────────────────────────────────────────────────────
+
+export function sendChatMessage(boardId: number, message: string, history: ChatMessage[]) {
+  return requestJson<ChatResponse>(`/api/boards/${boardId}/chat`, {
     method: "POST",
     body: JSON.stringify({ message, history }),
   });

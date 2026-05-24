@@ -114,19 +114,23 @@ def parse_ai_chat_result(raw_response: str) -> AIChatResult:
     return result
 
 
-def apply_ai_chat_result(result: AIChatResult, board: dict[str, Any]) -> ChatResponse:
+def apply_ai_chat_result(
+    result: AIChatResult,
+    board: dict[str, Any],
+    board_id: int | None = None,
+) -> ChatResponse:
     validate_actions(result.actions, board)
 
     changed_board = board
     for action in result.actions:
         if isinstance(action, CreateCardAction):
-            changed_board = database.create_card(action.columnId, action.title, action.details)
+            changed_board = database.create_card(action.columnId, action.title, action.details, board_id=board_id)
         elif isinstance(action, UpdateCardAction):
-            changed_board = database.update_card(action.cardId, action.title, action.details)
+            changed_board = database.update_card(action.cardId, action.title, action.details, board_id=board_id)
         elif isinstance(action, MoveCardAction):
-            changed_board = database.move_card(action.cardId, action.targetColumnId)
+            changed_board = database.move_card(action.cardId, action.targetColumnId, board_id=board_id)
         elif isinstance(action, DeleteCardAction):
-            changed_board = database.delete_card(action.cardId)
+            changed_board = database.delete_card(action.cardId, board_id=board_id)
 
     return ChatResponse(
         message=result.message.strip(),

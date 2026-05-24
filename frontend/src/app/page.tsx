@@ -12,15 +12,22 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Plus, Send, Trash2 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ChevronDown, GripVertical, Plus, Send, Trash2, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Board,
+  BoardSummary,
   ChatMessage,
+  createBoard,
   createCard,
+  createColumn,
+  deleteBoard,
   deleteCard,
+  deleteColumn,
   fetchBoard,
+  listBoards,
   moveCard,
+  renameBoard,
   renameColumn,
   sendChatMessage,
   updateCard,
@@ -55,7 +62,10 @@ export default function Home() {
     () => sessionStorage.getItem(SESSION_KEY) === "true",
     () => false,
   );
-  const [boardName, setBoardName] = useState("Product Launch");
+
+  const [boards, setBoards] = useState<BoardSummary[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<number | null>(null);
+  const [boardName, setBoardName] = useState("");
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [forms, setForms] = useState<CardFormState>({});
@@ -64,6 +74,7 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [showBoardMenu, setShowBoardMenu] = useState(false);
 
   function applyBoard(board: Board) {
     setBoardName(board.name);
@@ -75,34 +86,48 @@ export default function Home() {
     }));
   }
 
-  useEffect(() => {
-    if (!isSignedIn) {
-      return;
+  const loadBoard = useCallback(async (boardId: number) => {
+    setIsLoadingBoard(true);
+    setBoardError("");
+    try {
+      applyBoard(await fetchBoard(boardId));
+    } catch {
+      setBoardError("Could not load the board. Please try again.");
+    } finally {
+      setIsLoadingBoard(false);
     }
+  }, []);
 
-    async function loadBoard() {
+  useEffect(() => {
+    if (!isSignedIn) return;
+
+    async function init() {
       setIsLoadingBoard(true);
       setBoardError("");
       try {
-        applyBoard(await fetchBoard());
+        const boardList = await listBoards();
+        setBoards(boardList);
+        if (boardList.length > 0) {
+          const id = boardList[0].id;
+          setActiveBoardId(id);
+          applyBoard(await fetchBoard(id));
+        }
       } catch {
-        setBoardError("Could not load the board. Please try again.");
+        setBoardError("Could not load boards. Please try again.");
       } finally {
         setIsLoadingBoard(false);
       }
     }
 
-    void loadBoard();
+    void init();
   }, [isSignedIn]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
   const cardsById = useMemo(() => {
-    return new Map(columns.flatMap((column) => column.cards.map((card) => [card.id, card])));
+    return new Map(columns.flatMap((col) => col.cards.map((card) => [card.id, card])));
   }, [columns]);
 
   const activeCard = activeCardId ? cardsById.get(activeCardId) : null;
@@ -116,23 +141,77 @@ export default function Home() {
     try {
       applyBoard(await mutation());
     } catch {
-      setBoardError("Could not save the board change. Please try again.");
+      setBoardError("Could not save the change. Please try again.");
     }
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const overId = event.over?.id;
-    if (overId) {
-      void runBoardMutation(() => moveCard(String(event.active.id), String(overId)));
+    if (overId && activeBoardId !== null) {
+      void runBoardMutation(() => moveCard(activeBoardId, String(event.active.id), String(overId)));
     }
     setActiveCardId(null);
   }
 
   function handleAddCard(columnId: string, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (activeBoardId === null) return;
     const form = forms[columnId] ?? emptyForm;
-    void runBoardMutation(() => createCard(columnId, form.title, form.details));
+    void runBoardMutation(() => createCard(activeBoardId, columnId, form.title, form.details));
     setForms((current) => ({ ...current, [columnId]: emptyForm }));
+  }
+
+  async function handleSwitchBoard(boardId: number) {
+    setShowBoardMenu(false);
+    setActiveBoardId(boardId);
+    setChatMessages([]);
+    setChatError("");
+    await loadBoard(boardId);
+  }
+
+  async function handleCreateBoard() {
+    setShowBoardMenu(false);
+    setBoardError("");
+    try {
+      const board = await createBoard("New Board");
+      const updated = await listBoards();
+      setBoards(updated);
+      setActiveBoardId(board.id);
+      applyBoard(board);
+      setChatMessages([]);
+      setChatError("");
+    } catch {
+      setBoardError("Could not create board. Please try again.");
+    }
+  }
+
+  async function handleDeleteBoard() {
+    if (activeBoardId === null) return;
+    setBoardError("");
+    try {
+      const remaining = await deleteBoard(activeBoardId);
+      setBoards(remaining);
+      const nextId = remaining[0].id;
+      setActiveBoardId(nextId);
+      await loadBoard(nextId);
+      setChatMessages([]);
+      setChatError("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      setBoardError(msg.includes("last board") ? "Cannot delete the last board." : "Could not delete board.");
+    }
+  }
+
+  async function handleRenameBoard(name: string) {
+    if (activeBoardId === null) return;
+    setBoardError("");
+    try {
+      const board = await renameBoard(activeBoardId, name);
+      applyBoard(board);
+      setBoards((prev) => prev.map((b) => (b.id === activeBoardId ? { ...b, name } : b)));
+    } catch {
+      setBoardError("Could not rename board.");
+    }
   }
 
   function handleSignIn() {
@@ -141,6 +220,8 @@ export default function Home() {
 
   function handleLogout() {
     setSession(false);
+    setBoards([]);
+    setActiveBoardId(null);
     setColumns([]);
     setForms({});
     setBoardError("");
@@ -149,6 +230,7 @@ export default function Home() {
   }
 
   async function handleSendChat(message: string) {
+    if (activeBoardId === null) return;
     const userMessage: ChatMessage = { role: "user", content: message };
     const history = chatMessages;
     setChatMessages((current) => [...current, userMessage]);
@@ -156,7 +238,7 @@ export default function Home() {
     setChatError("");
 
     try {
-      const response = await sendChatMessage(message, history);
+      const response = await sendChatMessage(activeBoardId, message, history);
       setChatMessages((current) => [
         ...current,
         { role: "assistant", content: response.message },
@@ -175,34 +257,93 @@ export default function Home() {
     return <LoginScreen onSignIn={handleSignIn} />;
   }
 
+  const totalCards = columns.reduce((n, col) => n + col.cards.length, 0);
+
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb] text-[#032147]">
       <header className="shrink-0 border-b border-slate-200 bg-white">
-        <div className="flex items-center justify-between gap-6 px-6 py-4">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#209dd7]">
-              Project board
-            </p>
-            <h1 className="mt-0.5 truncate text-2xl font-semibold text-[#032147]">{boardName}</h1>
-          </div>
-          <div className="flex shrink-0 items-center gap-5">
-            <div className="flex gap-3">
-              <Stat label="Columns" value={columns.length} />
-              <Stat
-                label="Cards"
-                value={columns.reduce((total, column) => total + column.cards.length, 0)}
-              />
-              <Stat label="Board" value="MVP" />
+        <div className="flex items-center gap-4 px-6 py-3">
+          {/* Board name + switcher */}
+          <div className="relative flex min-w-0 flex-1 items-center gap-2">
+            <BoardNameEditor
+              name={boardName}
+              onRename={handleRenameBoard}
+            />
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Switch board"
+                onClick={() => setShowBoardMenu((v) => !v)}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-[#888888] hover:bg-slate-100 hover:text-[#032147] focus:outline-none focus:ring-2 focus:ring-[#209dd7]/30"
+              >
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+              {showBoardMenu && (
+                <div className="absolute left-0 top-full z-50 mt-1 w-56 border border-slate-200 bg-white shadow-lg">
+                  <div className="border-b border-slate-100 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#888888]">
+                      Your boards
+                    </p>
+                  </div>
+                  <ul>
+                    {boards.map((board) => (
+                      <li key={board.id}>
+                        <button
+                          type="button"
+                          onClick={() => void handleSwitchBoard(board.id)}
+                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 ${
+                            board.id === activeBoardId
+                              ? "font-semibold text-[#209dd7]"
+                              : "text-[#032147]"
+                          }`}
+                        >
+                          <span className="truncate">{board.name}</span>
+                          <span className="ml-2 shrink-0 text-xs text-[#888888]">
+                            {board.cardCount}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="border-t border-slate-100 p-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateBoard()}
+                      className="inline-flex w-full items-center gap-2 px-2 py-1.5 text-sm font-medium text-[#753991] hover:bg-[#753991]/5"
+                    >
+                      <Plus size={13} aria-hidden="true" />
+                      New board
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+            {boards.length > 1 && (
+              <button
+                type="button"
+                aria-label="Delete current board"
+                onClick={() => void handleDeleteBoard()}
+                className="inline-flex size-7 items-center justify-center text-slate-300 transition hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-200"
+              >
+                <Trash2 size={13} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          {/* Stats */}
+          <div className="flex shrink-0 items-center gap-3">
+            <Stat label="Columns" value={columns.length} />
+            <Stat label="Cards" value={totalCards} />
             <button
               type="button"
               onClick={handleLogout}
-              className="h-9 border border-slate-200 bg-white px-4 text-sm font-semibold text-[#753991] transition hover:border-[#753991] hover:bg-[#753991]/5 focus:outline-none focus:ring-2 focus:ring-[#753991]/30"
+              className="h-8 border border-slate-200 bg-white px-3 text-sm font-semibold text-[#753991] transition hover:border-[#753991] hover:bg-[#753991]/5 focus:outline-none focus:ring-2 focus:ring-[#753991]/30"
             >
               Log out
             </button>
           </div>
         </div>
+
         {boardError ? (
           <div className="border-t border-red-100 bg-red-50 px-6 py-2">
             <p role="alert" className="text-sm font-medium text-red-700">
@@ -212,7 +353,17 @@ export default function Home() {
         ) : null}
       </header>
 
+      {/* Click-outside to close board menu */}
+      {showBoardMenu && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setShowBoardMenu(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <div className="flex flex-1 overflow-hidden">
+        {/* Board area */}
         <div className="flex-1 overflow-x-auto overflow-y-hidden">
           {isLoadingBoard ? (
             <div className="flex h-full items-center justify-center">
@@ -239,19 +390,35 @@ export default function Home() {
                       setForms((current) => ({ ...current, [column.id]: form }))
                     }
                     onAddCard={(event) => handleAddCard(column.id, event)}
-                    onDeleteCard={(cardId) =>
-                      void runBoardMutation(() => deleteCard(cardId))
-                    }
-                    onUpdateCard={(cardId, updates) =>
-                      void runBoardMutation(() =>
-                        updateCard(cardId, updates.title, updates.details)
-                      )
-                    }
-                    onRename={(name) =>
-                      void runBoardMutation(() => renameColumn(column.id, name))
-                    }
+                    onDeleteCard={(cardId) => {
+                      if (activeBoardId !== null)
+                        void runBoardMutation(() => deleteCard(activeBoardId, cardId));
+                    }}
+                    onUpdateCard={(cardId, updates) => {
+                      if (activeBoardId !== null)
+                        void runBoardMutation(() =>
+                          updateCard(activeBoardId, cardId, updates.title, updates.details)
+                        );
+                    }}
+                    onRename={(name) => {
+                      if (activeBoardId !== null)
+                        void runBoardMutation(() => renameColumn(activeBoardId, column.id, name));
+                    }}
+                    onDelete={() => {
+                      if (activeBoardId !== null)
+                        void runBoardMutation(() => deleteColumn(activeBoardId, column.id));
+                    }}
                   />
                 ))}
+
+                {/* Add column button */}
+                {activeBoardId !== null && (
+                  <AddColumnButton
+                    onAdd={(name) =>
+                      void runBoardMutation(() => createColumn(activeBoardId, name))
+                    }
+                  />
+                )}
               </section>
 
               <DragOverlay>
@@ -272,6 +439,129 @@ export default function Home() {
   );
 }
 
+// ─── Board name editor ────────────────────────────────────────────────────────
+
+function BoardNameEditor({
+  name,
+  onRename,
+}: {
+  name: string;
+  onRename: (name: string) => void;
+}) {
+  const [draft, setDraft] = useState(name);
+  const [synced, setSynced] = useState(name);
+
+  if (name !== synced) {
+    setSynced(name);
+    setDraft(name);
+  }
+
+  function commit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== name) {
+      onRename(trimmed);
+    } else {
+      setDraft(name);
+    }
+  }
+
+  return (
+    <input
+      aria-label="Board name"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className="min-w-0 flex-1 bg-transparent text-xl font-semibold text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
+    />
+  );
+}
+
+// ─── Add column ───────────────────────────────────────────────────────────────
+
+function AddColumnButton({ onAdd }: { onAdd: (name: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function open() {
+    setEditing(true);
+    setName("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function commit() {
+    const trimmed = name.trim();
+    if (trimmed) {
+      onAdd(trimmed);
+    }
+    setEditing(false);
+    setName("");
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") {
+      setEditing(false);
+      setName("");
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex w-64 shrink-0 flex-col border border-[#209dd7] bg-white p-3 shadow-sm">
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={commit}
+          placeholder="Column name"
+          aria-label="New column name"
+          className="h-9 w-full border border-slate-200 px-3 text-sm font-medium text-[#032147] outline-none focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
+        />
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={commit}
+            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 bg-[#753991] text-xs font-semibold text-white hover:bg-[#63307b]"
+          >
+            <Plus size={12} aria-hidden="true" />
+            Add
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setName("");
+            }}
+            aria-label="Cancel"
+            className="inline-flex size-8 items-center justify-center text-slate-400 hover:text-[#032147]"
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      aria-label="Add column"
+      className="flex w-64 shrink-0 items-center justify-center gap-2 border border-dashed border-slate-300 bg-white/50 text-sm font-medium text-[#888888] transition hover:border-[#209dd7] hover:bg-white hover:text-[#209dd7]"
+    >
+      <Plus size={15} aria-hidden="true" />
+      Add column
+    </button>
+  );
+}
+
+// ─── Login screen ─────────────────────────────────────────────────────────────
+
 function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -279,13 +569,11 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     if (username === "user" && password === "password") {
       setError("");
       onSignIn();
       return;
     }
-
     setError("Use username user and password password.");
   }
 
@@ -299,7 +587,6 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
         <p className="mt-3 text-sm leading-6 text-[#888888]">
           Use the MVP credentials to access the Kanban board.
         </p>
-
         <form onSubmit={handleSubmit} className="mt-8 space-y-4">
           <div>
             <label className="text-sm font-semibold text-[#032147]" htmlFor="username">
@@ -308,7 +595,7 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
             <input
               id="username"
               value={username}
-              onChange={(event) => setUsername(event.target.value)}
+              onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               className="mt-2 h-11 w-full border border-slate-200 bg-white px-3 text-sm text-[#032147] outline-none transition focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
             />
@@ -321,7 +608,7 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
               id="password"
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               className="mt-2 h-11 w-full border border-slate-200 bg-white px-3 text-sm text-[#032147] outline-none transition focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
             />
@@ -343,14 +630,18 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
   );
 }
 
+// ─── Stat chip ────────────────────────────────────────────────────────────────
+
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="border-l-2 border-[#ecad0a] bg-slate-50 px-3 py-1.5">
       <p className="text-xs font-medium text-[#888888]">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold text-[#032147]">{value}</p>
+      <p className="mt-0.5 text-base font-semibold text-[#032147]">{value}</p>
     </div>
   );
 }
+
+// ─── Chat sidebar ─────────────────────────────────────────────────────────────
 
 function ChatSidebar({
   messages,
@@ -373,9 +664,7 @@ function ChatSidebar({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = draft.trim();
-    if (!message || isSending) {
-      return;
-    }
+    if (!message || isSending) return;
     setDraft("");
     onSend(message);
   }
@@ -441,7 +730,7 @@ function ChatSidebar({
         <textarea
           id="ai-message"
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ask the AI to update the board... (Enter to send)"
           rows={3}
@@ -460,6 +749,8 @@ function ChatSidebar({
   );
 }
 
+// ─── Kanban column ────────────────────────────────────────────────────────────
+
 function KanbanColumn({
   column,
   form,
@@ -468,6 +759,7 @@ function KanbanColumn({
   onDeleteCard,
   onUpdateCard,
   onRename,
+  onDelete,
 }: {
   column: BoardColumn;
   form: { title: string; details: string };
@@ -476,6 +768,7 @@ function KanbanColumn({
   onDeleteCard: (cardId: string) => void;
   onUpdateCard: (cardId: string, updates: Pick<Card, "title" | "details">) => void;
   onRename: (name: string) => void;
+  onDelete: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [name, setName] = useState(column.name);
@@ -487,9 +780,7 @@ function KanbanColumn({
   }
 
   function commitName() {
-    if (name !== column.name) {
-      onRename(name);
-    }
+    if (name !== column.name) onRename(name);
   }
 
   return (
@@ -500,15 +791,25 @@ function KanbanColumn({
         isOver ? "ring-2 ring-[#209dd7]" : ""
       }`}
     >
-      <header className="shrink-0 border-t-4 border-[#ecad0a] px-4 pb-3 pt-4">
-        <input
-          aria-label={`${name} column name`}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={commitName}
-          className="w-full bg-transparent text-base font-semibold text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
-        />
-        <p className="mt-1 text-xs font-medium text-[#888888]">
+      <header className="group shrink-0 border-t-4 border-[#ecad0a] px-3 pb-2 pt-3">
+        <div className="flex items-center gap-1">
+          <input
+            aria-label={`${name} column name`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={commitName}
+            className="flex-1 bg-transparent text-sm font-semibold text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
+          />
+          <button
+            type="button"
+            aria-label={`Delete ${name} column`}
+            onClick={onDelete}
+            className="inline-flex size-6 shrink-0 items-center justify-center text-slate-300 opacity-0 transition hover:text-red-500 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 group-hover:opacity-100"
+          >
+            <Trash2 size={12} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="mt-0.5 text-xs font-medium text-[#888888]">
           {column.cards.length} {column.cards.length === 1 ? "card" : "cards"}
         </p>
       </header>
@@ -532,7 +833,7 @@ function KanbanColumn({
           id={`${column.id}-title`}
           placeholder="Card title"
           value={form.title}
-          onChange={(event) => onFormChange({ ...form, title: event.target.value })}
+          onChange={(e) => onFormChange({ ...form, title: e.target.value })}
           className="h-9 w-full border border-slate-200 bg-white px-3 text-sm font-medium text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
         />
         <label className="sr-only" htmlFor={`${column.id}-details`}>
@@ -542,7 +843,7 @@ function KanbanColumn({
           id={`${column.id}-details`}
           placeholder="Details"
           value={form.details}
-          onChange={(event) => onFormChange({ ...form, details: event.target.value })}
+          onChange={(e) => onFormChange({ ...form, details: e.target.value })}
           rows={2}
           className="mt-2 w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
         />
@@ -557,6 +858,8 @@ function KanbanColumn({
     </article>
   );
 }
+
+// ─── Draggable card ───────────────────────────────────────────────────────────
 
 function DraggableCard({
   card,
@@ -587,6 +890,8 @@ function DraggableCard({
     </div>
   );
 }
+
+// ─── Card panel ───────────────────────────────────────────────────────────────
 
 function CardPanel({
   card,
@@ -628,7 +933,7 @@ function CardPanel({
     <div
       data-testid={`card-${card.id}`}
       className={`group border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md ${
-        isOverlay ? "w-72 shadow-2xl" : ""
+        isOverlay ? "w-64 shadow-2xl" : ""
       }`}
     >
       <div className="flex items-start gap-1.5">
@@ -650,7 +955,7 @@ function CardPanel({
               <input
                 id={`${card.id}-title`}
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(e) => setTitle(e.target.value)}
                 onBlur={commit}
                 className="w-full bg-transparent text-sm font-semibold leading-5 text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
               />
@@ -661,7 +966,7 @@ function CardPanel({
                 id={`${card.id}-details`}
                 value={details}
                 placeholder="Details"
-                onChange={(event) => setDetails(event.target.value)}
+                onChange={(e) => setDetails(e.target.value)}
                 onBlur={commit}
                 rows={2}
                 className="mt-1 w-full resize-none bg-transparent text-xs leading-5 text-[#888888] outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[#209dd7]"
