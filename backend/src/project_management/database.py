@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -78,78 +79,14 @@ def connect(database_path: Path | None = None) -> sqlite3.Connection:
 
 
 def initialize_database(database_path: Path | None = None) -> None:
-    with connect(database_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              username TEXT NOT NULL UNIQUE,
-              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS boards (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              user_id INTEGER NOT NULL UNIQUE,
-              name TEXT NOT NULL,
-              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS columns (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              board_id INTEGER NOT NULL,
-              slug TEXT NOT NULL,
-              name TEXT NOT NULL,
-              position INTEGER NOT NULL,
-              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (board_id) REFERENCES boards (id) ON DELETE CASCADE,
-              UNIQUE (board_id, slug),
-              UNIQUE (board_id, position)
-            );
-
-            CREATE TABLE IF NOT EXISTS cards (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              board_id INTEGER NOT NULL,
-              column_id INTEGER NOT NULL,
-              slug TEXT NOT NULL,
-              title TEXT NOT NULL,
-              details TEXT NOT NULL DEFAULT '',
-              position INTEGER NOT NULL,
-              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (board_id) REFERENCES boards (id) ON DELETE CASCADE,
-              FOREIGN KEY (column_id) REFERENCES columns (id) ON DELETE CASCADE,
-              UNIQUE (column_id, position),
-              UNIQUE (board_id, slug)
-            );
-            """
-        )
-        if not _user_exists(connection, DEFAULT_USER):
-            _seed_database(connection)
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
 
 
 def get_board(username: str = DEFAULT_USER, database_path: Path | None = None) -> dict[str, Any]:
-    initialize_database(database_path)
-    with connect(database_path) as connection:
-        board = _get_board_row(connection, username)
-        columns = connection.execute(
-            """
-            SELECT id, slug, name
-            FROM columns
-            WHERE board_id = ?
-            ORDER BY position
-            """,
-            (board["id"],),
-        ).fetchall()
-
-        return {
-            "id": board["id"],
-            "name": board["name"],
-            "columns": [_column_to_dict(connection, column) for column in columns],
-        }
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
+        return _serialize_board(connection, username)
 
 
 def rename_column(
@@ -158,8 +95,8 @@ def rename_column(
     username: str = DEFAULT_USER,
     database_path: Path | None = None,
 ) -> dict[str, Any]:
-    initialize_database(database_path)
-    with connect(database_path) as connection:
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
         board = _get_board_row(connection, username)
         column = _get_column_row(connection, board["id"], column_slug)
         connection.execute(
@@ -167,7 +104,7 @@ def rename_column(
             (name, column["id"]),
         )
         connection.commit()
-        return get_board(username, database_path)
+        return _serialize_board(connection, username)
 
 
 def create_card(
@@ -177,13 +114,13 @@ def create_card(
     username: str = DEFAULT_USER,
     database_path: Path | None = None,
 ) -> dict[str, Any]:
-    initialize_database(database_path)
     clean_title = title.strip()
     clean_details = details.strip()
-    if not clean_title:
-        return get_board(username, database_path)
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
+        if not clean_title:
+            return _serialize_board(connection, username)
 
-    with connect(database_path) as connection:
         board = _get_board_row(connection, username)
         column = _get_column_row(connection, board["id"], column_slug)
         position = _next_card_position(connection, column["id"])
@@ -202,7 +139,7 @@ def create_card(
             ),
         )
         connection.commit()
-        return get_board(username, database_path)
+        return _serialize_board(connection, username)
 
 
 def update_card(
@@ -212,8 +149,13 @@ def update_card(
     username: str = DEFAULT_USER,
     database_path: Path | None = None,
 ) -> dict[str, Any]:
-    initialize_database(database_path)
-    with connect(database_path) as connection:
+    clean_title = title.strip()
+    clean_details = details.strip()
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
+        if not clean_title:
+            return _serialize_board(connection, username)
+
         board = _get_board_row(connection, username)
         card = _get_card_row(connection, board["id"], card_slug)
         connection.execute(
@@ -222,10 +164,10 @@ def update_card(
             SET title = ?, details = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (title, details, card["id"]),
+            (clean_title, clean_details, card["id"]),
         )
         connection.commit()
-        return get_board(username, database_path)
+        return _serialize_board(connection, username)
 
 
 def delete_card(
@@ -233,15 +175,15 @@ def delete_card(
     username: str = DEFAULT_USER,
     database_path: Path | None = None,
 ) -> dict[str, Any]:
-    initialize_database(database_path)
-    with connect(database_path) as connection:
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
         board = _get_board_row(connection, username)
         card = _get_card_row(connection, board["id"], card_slug)
         source_column_id = card["column_id"]
         connection.execute("DELETE FROM cards WHERE id = ?", (card["id"],))
         _compact_card_positions(connection, source_column_id)
         connection.commit()
-        return get_board(username, database_path)
+        return _serialize_board(connection, username)
 
 
 def move_card(
@@ -250,13 +192,13 @@ def move_card(
     username: str = DEFAULT_USER,
     database_path: Path | None = None,
 ) -> dict[str, Any]:
-    initialize_database(database_path)
-    with connect(database_path) as connection:
+    with closing(connect(database_path)) as connection:
+        _ensure_schema(connection)
         board = _get_board_row(connection, username)
         card = _get_card_row(connection, board["id"], card_slug)
         target_column = _get_column_row(connection, board["id"], target_column_slug)
         if card["column_id"] == target_column["id"]:
-            return get_board(username, database_path)
+            return _serialize_board(connection, username)
 
         source_column_id = card["column_id"]
         target_position = _next_card_position(connection, target_column["id"])
@@ -270,7 +212,61 @@ def move_card(
         )
         _compact_card_positions(connection, source_column_id)
         connection.commit()
-        return get_board(username, database_path)
+        return _serialize_board(connection, username)
+
+
+def _ensure_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS boards (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS columns (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          board_id INTEGER NOT NULL,
+          slug TEXT NOT NULL,
+          name TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (board_id) REFERENCES boards (id) ON DELETE CASCADE,
+          UNIQUE (board_id, slug),
+          UNIQUE (board_id, position)
+        );
+
+        CREATE TABLE IF NOT EXISTS cards (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          board_id INTEGER NOT NULL,
+          column_id INTEGER NOT NULL,
+          slug TEXT NOT NULL,
+          title TEXT NOT NULL,
+          details TEXT NOT NULL DEFAULT '',
+          position INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (board_id) REFERENCES boards (id) ON DELETE CASCADE,
+          FOREIGN KEY (column_id) REFERENCES columns (id) ON DELETE CASCADE,
+          UNIQUE (column_id, position),
+          UNIQUE (board_id, slug)
+        );
+        """
+    )
+    if not _user_exists(connection, DEFAULT_USER):
+        _seed_database(connection)
+        connection.commit()
 
 
 def _user_exists(connection: sqlite3.Connection, username: str) -> bool:
@@ -309,6 +305,24 @@ def _seed_database(connection: sqlite3.Connection) -> None:
             """,
             (board_id, column_ids[column_slug], slug, title, details, position),
         )
+
+
+def _serialize_board(connection: sqlite3.Connection, username: str) -> dict[str, Any]:
+    board = _get_board_row(connection, username)
+    columns = connection.execute(
+        """
+        SELECT id, slug, name
+        FROM columns
+        WHERE board_id = ?
+        ORDER BY position
+        """,
+        (board["id"],),
+    ).fetchall()
+    return {
+        "id": board["id"],
+        "name": board["name"],
+        "columns": [_column_to_dict(connection, column) for column in columns],
+    }
 
 
 def _get_board_row(connection: sqlite3.Connection, username: str) -> sqlite3.Row:

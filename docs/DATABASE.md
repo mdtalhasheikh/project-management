@@ -64,6 +64,8 @@ CREATE TABLE cards (
 - Moving a card updates its `column_id` and `position`.
 - For the MVP, moving a card can append it to the target column by setting `position` to the next value.
 
+Known limitation: the MVP only supports moving a card to a different column (it is appended to the end of the target). Reordering cards within the same column is not supported; dropping a card back on its own column is a no-op in both the frontend drag handling and the backend `move_card`.
+
 ## API Shape
 
 The backend should convert rows into the frontend shape:

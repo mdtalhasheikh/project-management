@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,8 @@ from pydantic import BaseModel
 from project_management import ai
 from project_management import ai_board
 from project_management import database
+
+logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = BACKEND_DIR.parent
@@ -124,7 +127,8 @@ def ask_ai_two_plus_two() -> AIProbeResponse:
     except ai.AIConfigurationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (httpx.HTTPError, RuntimeError) as error:
-        raise HTTPException(status_code=502, detail="OpenRouter request failed") from error
+        logger.exception("OpenRouter probe request failed")
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {error}") from error
 
     return AIProbeResponse(question=question, answer=answer, model=settings.model)
 
@@ -146,9 +150,11 @@ def chat_with_ai(request: ChatRequest) -> ai_board.ChatResponse:
     except ai.AIConfigurationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except ValueError as error:
+        logger.warning("AI chat response rejected: %s", error)
         raise HTTPException(status_code=502, detail=str(error)) from error
     except (httpx.HTTPError, RuntimeError) as error:
-        raise HTTPException(status_code=502, detail="OpenRouter request failed") from error
+        logger.exception("OpenRouter chat request failed")
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {error}") from error
 
 
 @app.get("/", include_in_schema=False)
@@ -161,7 +167,8 @@ def static_asset(asset_path: str) -> FileResponse:
     if asset_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="API route not found")
 
-    asset = STATIC_DIR / asset_path
-    if asset.is_file():
+    static_root = STATIC_DIR.resolve()
+    asset = (static_root / asset_path).resolve()
+    if asset.is_file() and asset.is_relative_to(static_root):
         return FileResponse(asset)
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(static_root / "index.html")

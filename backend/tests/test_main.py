@@ -1,7 +1,9 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 import pytest
 
-from project_management import ai
+from project_management import ai, main
 from project_management.main import app
 
 
@@ -105,6 +107,13 @@ def test_unknown_api_route_returns_not_found(client: TestClient) -> None:
     response = client.get("/api/missing")
 
     assert response.status_code == 404
+
+
+def test_static_asset_rejects_path_traversal() -> None:
+    response = main.static_asset("../../../../etc/hosts")
+
+    served = Path(response.path).resolve()
+    assert served == (main.STATIC_DIR.resolve() / "index.html")
 
 
 def test_ai_dev_probe_endpoint_is_disabled_by_default(client: TestClient) -> None:

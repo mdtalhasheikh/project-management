@@ -76,15 +76,19 @@ def build_chat_messages(
     board: dict[str, Any],
 ) -> list[ai.ChatMessage]:
     system_prompt = (
-        "You help manage a Kanban board. Return only JSON with this shape: "
-        '{"message":"user-facing reply","actions":[]}. '
-        "Allowed actions are create_card, update_card, move_card, and delete_card. "
-        "Use existing card and column ids exactly as provided. "
-        "For create_card use columnId, title, and optional details. "
-        "For update_card use cardId, title, and optional details. "
-        "For move_card use cardId and targetColumnId. "
-        "For delete_card use cardId. "
-        "If no board update is needed, return an empty actions array."
+        "You help manage a Kanban board. "
+        "Reply with ONLY a JSON object of this exact shape: "
+        '{"message":"short user-facing reply","actions":[]}. '
+        "Each item in actions must be exactly one of these objects "
+        '(the discriminator field is named "type"): '
+        '{"type":"create_card","columnId":"<column id>","title":"...","details":"..."}, '
+        '{"type":"update_card","cardId":"<card id>","title":"...","details":"..."}, '
+        '{"type":"move_card","cardId":"<card id>","targetColumnId":"<column id>"}, '
+        '{"type":"delete_card","cardId":"<card id>"}. '
+        "Use card and column ids exactly as they appear in the board JSON. "
+        "details is optional and defaults to an empty string. "
+        "If no board change is needed, return an empty actions array. "
+        "Do not include any fields other than those shown."
     )
     history_messages: list[ai.ChatMessage] = [
         {"role": message.role, "content": message.content} for message in history
