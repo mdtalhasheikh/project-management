@@ -1,0 +1,10 @@
+services:
+  app:
+    build:
+      context: .
+    image: project-management-mvp:local
+    container_name: project-management-mvp
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
