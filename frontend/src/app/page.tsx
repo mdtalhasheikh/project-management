@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Send, Trash2 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Board,
   ChatMessage,
@@ -176,19 +176,17 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f8fb] text-[#032147]">
-      <section className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[1720px] flex-col gap-4 px-5 py-6 sm:px-8 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#209dd7]">
+    <main className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb] text-[#032147]">
+      <header className="shrink-0 border-b border-slate-200 bg-white">
+        <div className="flex items-center justify-between gap-6 px-6 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#209dd7]">
               Project board
             </p>
-            <h1 className="mt-2 text-4xl font-semibold text-[#032147] sm:text-5xl">
-              {boardName}
-            </h1>
+            <h1 className="mt-0.5 truncate text-2xl font-semibold text-[#032147]">{boardName}</h1>
           </div>
-          <div className="flex flex-col gap-3 sm:min-w-[360px]">
-            <div className="grid grid-cols-3 gap-3 text-sm">
+          <div className="flex shrink-0 items-center gap-5">
+            <div className="flex gap-3">
               <Stat label="Columns" value={columns.length} />
               <Stat
                 label="Cards"
@@ -199,64 +197,69 @@ export default function Home() {
             <button
               type="button"
               onClick={handleLogout}
-              className="h-10 border border-slate-200 bg-white px-4 text-sm font-semibold text-[#753991] transition hover:border-[#753991] hover:bg-[#753991]/5 focus:outline-none focus:ring-2 focus:ring-[#753991]/30"
+              className="h-9 border border-slate-200 bg-white px-4 text-sm font-semibold text-[#753991] transition hover:border-[#753991] hover:bg-[#753991]/5 focus:outline-none focus:ring-2 focus:ring-[#753991]/30"
             >
               Log out
             </button>
           </div>
         </div>
-      </section>
+        {boardError ? (
+          <div className="border-t border-red-100 bg-red-50 px-6 py-2">
+            <p role="alert" className="text-sm font-medium text-red-700">
+              {boardError}
+            </p>
+          </div>
+        ) : null}
+      </header>
 
-      {boardError ? (
-        <div className="mx-auto max-w-[1720px] px-5 pt-5 sm:px-8">
-          <p role="alert" className="border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-            {boardError}
-          </p>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-x-auto overflow-y-hidden">
+          {isLoadingBoard ? (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm font-medium text-[#888888]">Loading board...</p>
+            </div>
+          ) : (
+            <DndContext
+              id="kanban-board"
+              sensors={sensors}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragCancel={() => setActiveCardId(null)}
+            >
+              <section
+                aria-label="Kanban board"
+                className="flex h-full w-max gap-4 px-6 py-5"
+              >
+                {columns.map((column) => (
+                  <KanbanColumn
+                    key={column.id}
+                    column={column}
+                    form={forms[column.id] ?? emptyForm}
+                    onFormChange={(form) =>
+                      setForms((current) => ({ ...current, [column.id]: form }))
+                    }
+                    onAddCard={(event) => handleAddCard(column.id, event)}
+                    onDeleteCard={(cardId) =>
+                      void runBoardMutation(() => deleteCard(cardId))
+                    }
+                    onUpdateCard={(cardId, updates) =>
+                      void runBoardMutation(() =>
+                        updateCard(cardId, updates.title, updates.details)
+                      )
+                    }
+                    onRename={(name) =>
+                      void runBoardMutation(() => renameColumn(column.id, name))
+                    }
+                  />
+                ))}
+              </section>
+
+              <DragOverlay>
+                {activeCard ? <CardPanel card={activeCard} isOverlay /> : null}
+              </DragOverlay>
+            </DndContext>
+          )}
         </div>
-      ) : null}
-
-      {isLoadingBoard ? (
-        <section className="mx-auto max-w-[1720px] px-5 py-8 sm:px-8">
-          <p className="text-sm font-medium text-[#888888]">Loading board...</p>
-        </section>
-      ) : null}
-
-      <div className="mx-auto flex max-w-[1720px] flex-col gap-5 px-5 py-5 sm:px-8 2xl:flex-row">
-        <DndContext
-          id="kanban-board"
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => setActiveCardId(null)}
-        >
-          <section
-            aria-label="Kanban board"
-            className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5"
-          >
-            {columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                column={column}
-                form={forms[column.id] ?? emptyForm}
-                onFormChange={(form) =>
-                  setForms((current) => ({ ...current, [column.id]: form }))
-                }
-                onAddCard={(event) => handleAddCard(column.id, event)}
-                onDeleteCard={(cardId) =>
-                  void runBoardMutation(() => deleteCard(cardId))
-                }
-                onUpdateCard={(cardId, updates) =>
-                  void runBoardMutation(() => updateCard(cardId, updates.title, updates.details))
-                }
-                onRename={(name) =>
-                  void runBoardMutation(() => renameColumn(column.id, name))
-                }
-              />
-            ))}
-          </section>
-
-          <DragOverlay>{activeCard ? <CardPanel card={activeCard} isOverlay /> : null}</DragOverlay>
-        </DndContext>
 
         <ChatSidebar
           messages={chatMessages}
@@ -342,9 +345,9 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="border-l-2 border-[#ecad0a] bg-slate-50 px-3 py-2">
+    <div className="border-l-2 border-[#ecad0a] bg-slate-50 px-3 py-1.5">
       <p className="text-xs font-medium text-[#888888]">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-[#032147]">{value}</p>
+      <p className="mt-0.5 text-lg font-semibold text-[#032147]">{value}</p>
     </div>
   );
 }
@@ -361,6 +364,11 @@ function ChatSidebar({
   onSend: (message: string) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isSending]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -372,21 +380,31 @@ function ChatSidebar({
     onSend(message);
   }
 
+  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      const message = draft.trim();
+      if (!message || isSending) return;
+      setDraft("");
+      onSend(message);
+    }
+  }
+
   return (
-    <aside className="border border-slate-200 bg-white shadow-[0_18px_50px_rgba(3,33,71,0.08)] 2xl:w-96 2xl:shrink-0">
-      <header className="border-t-4 border-[#209dd7] px-4 pb-3 pt-4">
-        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#753991]">
+    <aside className="flex w-96 shrink-0 flex-col border-l border-slate-200 bg-white shadow-[-4px_0_20px_rgba(3,33,71,0.06)]">
+      <header className="shrink-0 border-t-4 border-[#209dd7] px-4 pb-3 pt-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#753991]">
           AI assistant
         </p>
-        <h2 className="mt-2 text-2xl font-semibold text-[#032147]">Board chat</h2>
-        <p className="mt-2 text-sm leading-6 text-[#888888]">
+        <h2 className="mt-1 text-xl font-semibold text-[#032147]">Board chat</h2>
+        <p className="mt-1 text-xs leading-5 text-[#888888]">
           Ask the AI to create, edit, move, or delete cards.
         </p>
       </header>
 
       <div
         aria-label="AI conversation"
-        className="flex max-h-[620px] min-h-72 flex-col gap-3 overflow-y-auto border-y border-slate-200 bg-slate-50 p-4"
+        className="flex flex-1 flex-col gap-3 overflow-y-auto bg-slate-50 p-4"
       >
         {messages.length === 0 ? (
           <p className="text-sm leading-6 text-[#888888]">
@@ -408,9 +426,10 @@ function ChatSidebar({
         {isSending ? (
           <p className="text-sm font-medium text-[#888888]">AI is thinking...</p>
         ) : null}
+        <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3 p-4">
+      <form onSubmit={handleSubmit} className="shrink-0 space-y-2 border-t border-slate-200 p-4">
         {error ? (
           <p role="alert" className="text-sm font-medium text-red-600">
             {error}
@@ -423,15 +442,17 @@ function ChatSidebar({
           id="ai-message"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask the AI to update the board..."
-          className="min-h-24 w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
+          onKeyDown={handleKeyDown}
+          placeholder="Ask the AI to update the board... (Enter to send)"
+          rows={3}
+          className="w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
         />
         <button
           type="submit"
           disabled={!draft.trim() || isSending}
-          className="inline-flex h-10 w-full items-center justify-center gap-2 bg-[#753991] px-3 text-sm font-semibold text-white transition hover:bg-[#63307b] focus:outline-none focus:ring-2 focus:ring-[#753991]/40 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="inline-flex h-9 w-full items-center justify-center gap-2 bg-[#753991] px-3 text-sm font-semibold text-white transition hover:bg-[#63307b] focus:outline-none focus:ring-2 focus:ring-[#753991]/40 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          <Send size={16} aria-hidden="true" />
+          <Send size={14} aria-hidden="true" />
           Send
         </button>
       </form>
@@ -475,24 +496,24 @@ function KanbanColumn({
     <article
       ref={setNodeRef}
       data-testid={`column-${column.id}`}
-      className={`flex min-h-[660px] flex-col border border-slate-200 bg-white shadow-[0_18px_50px_rgba(3,33,71,0.08)] transition ${
+      className={`flex w-64 shrink-0 flex-col border border-slate-200 bg-white shadow-[0_4px_20px_rgba(3,33,71,0.07)] transition ${
         isOver ? "ring-2 ring-[#209dd7]" : ""
       }`}
     >
-      <header className="border-t-4 border-[#ecad0a] px-4 pb-3 pt-4">
+      <header className="shrink-0 border-t-4 border-[#ecad0a] px-4 pb-3 pt-4">
         <input
           aria-label={`${name} column name`}
           value={name}
           onChange={(event) => setName(event.target.value)}
           onBlur={commitName}
-          className="w-full bg-transparent text-lg font-semibold text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
+          className="w-full bg-transparent text-base font-semibold text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
         />
-        <p className="mt-2 text-sm font-medium text-[#888888]">
+        <p className="mt-1 text-xs font-medium text-[#888888]">
           {column.cards.length} {column.cards.length === 1 ? "card" : "cards"}
         </p>
       </header>
 
-      <div className="flex flex-1 flex-col gap-3 px-3 py-2">
+      <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-2">
         {column.cards.map((card) => (
           <DraggableCard
             key={card.id}
@@ -503,7 +524,7 @@ function KanbanColumn({
         ))}
       </div>
 
-      <form onSubmit={onAddCard} className="border-t border-slate-200 bg-slate-50 p-3">
+      <form onSubmit={onAddCard} className="shrink-0 border-t border-slate-200 bg-slate-50 p-3">
         <label className="sr-only" htmlFor={`${column.id}-title`}>
           Card title
         </label>
@@ -512,7 +533,7 @@ function KanbanColumn({
           placeholder="Card title"
           value={form.title}
           onChange={(event) => onFormChange({ ...form, title: event.target.value })}
-          className="h-10 w-full border border-slate-200 bg-white px-3 text-sm font-medium text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
+          className="h-9 w-full border border-slate-200 bg-white px-3 text-sm font-medium text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
         />
         <label className="sr-only" htmlFor={`${column.id}-details`}>
           Card details
@@ -522,13 +543,14 @@ function KanbanColumn({
           placeholder="Details"
           value={form.details}
           onChange={(event) => onFormChange({ ...form, details: event.target.value })}
-          className="mt-2 min-h-20 w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
+          rows={2}
+          className="mt-2 w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm text-[#032147] outline-none transition placeholder:text-slate-400 focus:border-[#209dd7] focus:ring-2 focus:ring-[#209dd7]/20"
         />
         <button
           type="submit"
-          className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 bg-[#753991] px-3 text-sm font-semibold text-white transition hover:bg-[#63307b] focus:outline-none focus:ring-2 focus:ring-[#753991]/40"
+          className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 bg-[#753991] px-3 text-sm font-semibold text-white transition hover:bg-[#63307b] focus:outline-none focus:ring-2 focus:ring-[#753991]/40"
         >
-          <Plus size={16} aria-hidden="true" />
+          <Plus size={14} aria-hidden="true" />
           Add card
         </button>
       </form>
@@ -605,19 +627,19 @@ function CardPanel({
   return (
     <div
       data-testid={`card-${card.id}`}
-      className={`border border-slate-200 bg-white p-4 shadow-sm ${
+      className={`group border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md ${
         isOverlay ? "w-72 shadow-2xl" : ""
       }`}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-1.5">
         <button
           type="button"
           aria-label={`Drag ${card.title}`}
-          className="mt-0.5 inline-flex size-7 shrink-0 cursor-grab items-center justify-center text-[#888888] hover:text-[#209dd7] active:cursor-grabbing"
+          className="mt-0.5 inline-flex size-6 shrink-0 cursor-grab items-center justify-center text-slate-300 hover:text-[#209dd7] active:cursor-grabbing"
           {...dragAttributes}
           {...dragListeners}
         >
-          <GripVertical size={17} aria-hidden="true" />
+          <GripVertical size={15} aria-hidden="true" />
         </button>
         <div className="min-w-0 flex-1">
           {onUpdate ? (
@@ -630,7 +652,7 @@ function CardPanel({
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 onBlur={commit}
-                className="w-full bg-transparent text-base font-semibold leading-6 text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
+                className="w-full bg-transparent text-sm font-semibold leading-5 text-[#032147] outline-none focus:ring-2 focus:ring-[#209dd7]"
               />
               <label className="sr-only" htmlFor={`${card.id}-details`}>
                 {title} card details
@@ -641,14 +663,15 @@ function CardPanel({
                 placeholder="Details"
                 onChange={(event) => setDetails(event.target.value)}
                 onBlur={commit}
-                className="mt-2 min-h-16 w-full resize-none bg-transparent text-sm leading-6 text-[#888888] outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[#209dd7]"
+                rows={2}
+                className="mt-1 w-full resize-none bg-transparent text-xs leading-5 text-[#888888] outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[#209dd7]"
               />
             </>
           ) : (
             <>
-              <h2 className="text-base font-semibold leading-6 text-[#032147]">{card.title}</h2>
+              <h2 className="text-sm font-semibold leading-5 text-[#032147]">{card.title}</h2>
               {card.details ? (
-                <p className="mt-2 text-sm leading-6 text-[#888888]">{card.details}</p>
+                <p className="mt-1 text-xs leading-5 text-[#888888]">{card.details}</p>
               ) : null}
             </>
           )}
@@ -658,9 +681,9 @@ function CardPanel({
             type="button"
             aria-label={`Delete ${card.title}`}
             onClick={onDelete}
-            className="inline-flex size-8 shrink-0 items-center justify-center text-slate-400 transition hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-200"
+            className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center text-slate-300 opacity-0 transition hover:text-red-500 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 group-hover:opacity-100"
           >
-            <Trash2 size={16} aria-hidden="true" />
+            <Trash2 size={13} aria-hidden="true" />
           </button>
         ) : null}
       </div>
